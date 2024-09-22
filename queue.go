@@ -11,7 +11,7 @@ type PriorityQueue[T comparable] struct {
 	items    map[T]*Entry[T]
 	entries  entryHeap[T]
 	capacity int
-	mu       sync.Mutex
+	mu       sync.RWMutex
 }
 
 // NewPriorityQueue constructs a priority queue
@@ -59,8 +59,8 @@ func (pq *PriorityQueue[T]) Put(value T, priority int, ttl time.Duration) {
 
 // Tail returns the lowest priority entry
 func (pq *PriorityQueue[T]) Tail() T {
-	pq.mu.Lock()
-	defer pq.mu.Unlock()
+	pq.mu.RLock()
+	defer pq.mu.RUnlock()
 
 	if len(pq.entries) == 0 {
 		var zero T
@@ -72,8 +72,8 @@ func (pq *PriorityQueue[T]) Tail() T {
 
 // Elems returns all elements in the queue sorted by priority from high to low
 func (pq *PriorityQueue[T]) Elems() []*Entry[T] {
-	pq.mu.Lock()
-	defer pq.mu.Unlock()
+	pq.mu.RLock()
+	defer pq.mu.RUnlock()
 
 	rs := make([]*Entry[T], 0, len(pq.entries))
 	tempHeap := make(entryHeap[T], len(pq.entries))
@@ -124,21 +124,15 @@ func (pq *PriorityQueue[T]) cleanup() {
 	pq.mu.Lock()
 	defer pq.mu.Unlock()
 
-	for _, entry := range pq.items {
-		if entry.isExpired() {
-			delete(pq.items, entry.Value)
+	now := time.Now()
+	for pq.entries.Len() > 0 {
+		entry := heap.Pop(&pq.entries).(*Entry[T])
+		if entry.expireAt.After(now) {
+			heap.Push(&pq.entries, entry)
+			break
 		}
+		delete(pq.items, entry.Value)
 	}
-
-	// Remove expired entries from the heap
-	filteredEntries := pq.entries[:0]
-	for _, entry := range pq.entries {
-		if !entry.isExpired() {
-			filteredEntries = append(filteredEntries, entry)
-		}
-	}
-	pq.entries = filteredEntries
-	heap.Init(&pq.entries)
 }
 
 // Entry is a pair of region and its priority
