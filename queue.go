@@ -71,11 +71,11 @@ func (pq *PriorityQueue[T]) Tail() T {
 }
 
 // Elems returns all elements in the queue sorted by priority from high to low
-func (pq *PriorityQueue[T]) Elems() []*Entry[T] {
+func (pq *PriorityQueue[T]) Elems() []T {
 	pq.mu.RLock()
 	defer pq.mu.RUnlock()
 
-	rs := make([]*Entry[T], 0, len(pq.entries))
+	rs := make([]T, 0, len(pq.entries))
 	tempHeap := make(entryHeap[T], len(pq.entries))
 
 	for i, entry := range pq.entries {
@@ -91,7 +91,7 @@ func (pq *PriorityQueue[T]) Elems() []*Entry[T] {
 	for tempHeap.Len() > 0 {
 		entry := heap.Pop(&tempHeap).(*Entry[T])
 		if !entry.isExpired() {
-			rs = append(rs, entry)
+			rs = append(rs, entry.Value)
 		}
 	}
 

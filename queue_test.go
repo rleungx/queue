@@ -30,8 +30,8 @@ func TestNewPriorityQueue(t *testing.T) {
 	pqFull.Put(2, 2, time.Millisecond*200)
 	pqFull.Put(3, 3, time.Millisecond*200) // This should remove the element with priority 1
 	assert.Len(t, pqFull.Elems(), 2)
-	assert.Equal(t, 3, pqFull.Elems()[0].Value)
-	assert.Equal(t, 2, pqFull.Elems()[1].Value)
+	assert.Equal(t, 3, pqFull.Elems()[0])
+	assert.Equal(t, 2, pqFull.Elems()[1])
 }
 
 // TestPutAndElems tests adding elements and retrieving them in the correct order.
@@ -42,9 +42,9 @@ func TestPutAndElems(t *testing.T) {
 	pq.Put(3, 3, time.Second)
 	elems := pq.Elems()
 	assert.Len(t, elems, 3)
-	assert.Equal(t, 3, elems[0].Value)
-	assert.Equal(t, 2, elems[1].Value)
-	assert.Equal(t, 1, elems[2].Value)
+	assert.Equal(t, 3, elems[0])
+	assert.Equal(t, 2, elems[1])
+	assert.Equal(t, 1, elems[2])
 }
 
 // TestTail tests the Tail method.
@@ -117,9 +117,9 @@ func TestPriorityAndExpiration(t *testing.T) {
 	}
 
 	for _, elem := range elems {
-		_, found := expectedValues[elem.Value]
+		_, found := expectedValues[elem]
 		assert.True(t, found)
-		delete(expectedValues, elem.Value) // Remove found element
+		delete(expectedValues, elem) // Remove found element
 	}
 	assert.Empty(t, expectedValues)
 }
@@ -136,7 +136,7 @@ func TestCleanupWithActiveEntries(t *testing.T) {
 
 	elems := pq.Elems()
 	assert.Len(t, elems, 1)
-	assert.Equal(t, 2, elems[0].Value)
+	assert.Equal(t, 2, elems[0])
 }
 
 // TestConcurrentAddAndRemove tests adding and removing entries concurrently.
@@ -185,7 +185,7 @@ func TestPriorityChange(t *testing.T) {
 	elems := pq.Elems()
 	assert.Len(t, elems, 3)
 	// Check the order: highest priority (4) should come first
-	assert.Equal(t, 1, elems[0].Value)
+	assert.Equal(t, 1, elems[0])
 }
 
 // TestOrderAfterMultipleRemovals tests the order of elements after multiple removals.
@@ -200,8 +200,8 @@ func TestOrderAfterMultipleRemovals(t *testing.T) {
 
 	elems := pq.Elems()
 	assert.Len(t, elems, 2)
-	assert.Equal(t, 1, elems[0].Value)
-	assert.Equal(t, 2, elems[1].Value)
+	assert.Equal(t, 1, elems[0])
+	assert.Equal(t, 2, elems[1])
 }
 
 // TestMixedOperations tests mixed operations of adding, removing, and expiring entries.
@@ -221,14 +221,14 @@ func TestMixedOperations(t *testing.T) {
 	assert.Len(t, elems, 2)
 
 	// Remove the entry with the highest priority (should be 2)
-	pq.Remove(elems[0].Value)
+	pq.Remove(elems[0])
 
 	// Check remaining entries
 	elems = pq.Elems()
 	assert.Len(t, elems, 1)
 
 	// Verify the remaining element
-	assert.Equal(t, 3, elems[0].Value)
+	assert.Equal(t, 3, elems[0])
 }
 
 func TestPriorityQueueWithDifferentTypes(t *testing.T) {
@@ -243,11 +243,11 @@ func TestPriorityQueueWithDifferentTypes(t *testing.T) {
 
 	elemsInt := pqInt.Elems()
 	assert.Len(t, elemsInt, 2)
-	assert.Equal(t, 2, elemsInt[0].Value)
-	pqInt.Remove(elemsInt[0].Value)
+	assert.Equal(t, 2, elemsInt[0])
+	pqInt.Remove(elemsInt[0])
 	elemsInt = pqInt.Elems()
 	assert.Len(t, elemsInt, 1)
-	assert.Equal(t, 3, elemsInt[0].Value)
+	assert.Equal(t, 3, elemsInt[0])
 
 	// Test with string type
 	pqString := NewPriorityQueue[string](10, time.Millisecond*100)
@@ -260,11 +260,11 @@ func TestPriorityQueueWithDifferentTypes(t *testing.T) {
 
 	elemsString := pqString.Elems()
 	assert.Len(t, elemsString, 2)
-	assert.Equal(t, "b", elemsString[0].Value)
-	pqString.Remove(elemsString[0].Value)
+	assert.Equal(t, "b", elemsString[0])
+	pqString.Remove(elemsString[0])
 	elemsString = pqString.Elems()
 	assert.Len(t, elemsString, 1)
-	assert.Equal(t, "c", elemsString[0].Value)
+	assert.Equal(t, "c", elemsString[0])
 
 	// Test with custom struct type
 	type CustomStruct struct {
@@ -282,12 +282,12 @@ func TestPriorityQueueWithDifferentTypes(t *testing.T) {
 
 	elemsStruct := pqStruct.Elems()
 	assert.Len(t, elemsStruct, 2)
-	assert.Equal(t, 2, elemsStruct[0].Value.ID)
-	assert.Equal(t, "b", elemsStruct[0].Value.Name)
+	assert.Equal(t, 2, elemsStruct[0].ID)
+	assert.Equal(t, "b", elemsStruct[0].Name)
 
-	pqStruct.Remove(elemsStruct[0].Value)
+	pqStruct.Remove(elemsStruct[0])
 	elemsStruct = pqStruct.Elems()
 	assert.Len(t, elemsStruct, 1)
-	assert.Equal(t, 3, elemsStruct[0].Value.ID)
-	assert.Equal(t, "c", elemsStruct[0].Value.Name)
+	assert.Equal(t, 3, elemsStruct[0].ID)
+	assert.Equal(t, "c", elemsStruct[0].Name)
 }
