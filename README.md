@@ -3,6 +3,7 @@
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/rleungx/queue/go.yml)
 ![Codecov](https://img.shields.io/codecov/c/github/rleungx/queue)
 ![GitHub License](https://img.shields.io/github/license/rleungx/queue)
+[![Go Reference](https://pkg.go.dev/badge/github.com/rleungx/queue.svg)](https://pkg.go.dev/github.com/rleungx/queue)
 
 This project is a Go implementation of a priority queue with expiration functionality.
 
