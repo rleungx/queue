@@ -30,15 +30,33 @@ func main() {
     pq := queue.NewPriorityQueue[string](10, time.Minute)
 
     // Add items to the priority queue
-    pq.Put("v1", 1, 2 * time.Minute)
-    pq.Put("v2", 2, time.Minute)
+    pq.Push("v1", 1, 2*time.Minute)
+    pq.Push("v2", 2, time.Minute)
+    pq.Push("v3", 3, 3*time.Minute)
+
+    // Show all items
+    elems := pq.Elems()
+    fmt.Printf("All items: %v\n", elems)
+
+    // Peek the highest priority item
+    peeked := pq.Peek()
+    fmt.Printf("Peeked item: %v\n", peeked)
 
     // Remove the highest priority item
-    pq.Remove("v2")
+    popped := pq.Pop()
+    fmt.Printf("Popped item: %v\n", popped)
 
-    // Show items
-    elems := pq.Elems()
-    fmt.Printf("%v\n", elems)
+    // Show remaining items
+    elems = pq.Elems()
+    fmt.Printf("Remaining items: %v\n", elems)
+
+    // Remove a specific item
+    pq.Remove("v1")
+    fmt.Printf("Removed item: v1\n")
+
+    // Show remaining items after removal
+    elems = pq.Elems()
+    fmt.Printf("Remaining items after removal: %v\n", elems)
 }
 ```
 
@@ -46,4 +64,4 @@ func main() {
 Contributions are welcome! Please open an issue or submit a pull request.
 
 ## License
-This project is licensed under the Apache License 2.0. See the LICENSE file for details. 
+This project is licensed under the Apache License 2.0. See the [LICENSE](./LICENSE) file for details.
