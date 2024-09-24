@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// PriorityQueue queue has priority and preempt.
+// PriorityQueue queue is a priority queue that supports adding, removing, and updating elements with priorities.
 type PriorityQueue[T comparable] struct {
 	items    map[T]*Entry[T]
 	entries  entryHeap[T]
@@ -42,6 +42,7 @@ func NewPriorityQueue[T comparable](capacity int, cleanupInterval time.Duration)
 	return pq
 }
 
+// Push adds a value to the queue with a priority and ttl.
 func (pq *PriorityQueue[T]) Push(value T, priority int, ttl time.Duration) {
 	pq.Lock()
 	defer pq.Unlock()
@@ -81,13 +82,13 @@ func (pq *PriorityQueue[T]) Push(value T, priority int, ttl time.Duration) {
 	}
 }
 
-// Pop returns the highest priority entry.
-func (pq *PriorityQueue[T]) Pop() (t any) {
+// Pop returns the highest priority entry and removes it from the queue.
+func (pq *PriorityQueue[T]) Pop() (value T) {
 	pq.Lock()
 	defer pq.Unlock()
 
 	if len(pq.entries) == 0 {
-		return t
+		return value
 	}
 
 	entry := heap.Pop(&pq.entries).(*Entry[T])
@@ -96,13 +97,13 @@ func (pq *PriorityQueue[T]) Pop() (t any) {
 	return entry.Value
 }
 
-// Peek returns the highest priority entry.
-func (pq *PriorityQueue[T]) Peek() (t any) {
+// Peek returns the highest priority entry without removing it.
+func (pq *PriorityQueue[T]) Peek() (value T) {
 	pq.RLock()
 	defer pq.RUnlock()
 
 	if len(pq.entries) == 0 {
-		return t
+		return value
 	}
 
 	return pq.entries[0].Value
@@ -213,14 +214,20 @@ func (e *Entry[T]) isExpired() bool {
 // entryHeap is a min-heap of *Entry[T].
 type entryHeap[T any] []*Entry[T]
 
-func (h entryHeap[T]) Len() int           { return len(h) }
+// Len implements the heap.Interface for entryHeap.
+func (h entryHeap[T]) Len() int { return len(h) }
+
+// Less implements the heap.Interface for entryHeap.
 func (h entryHeap[T]) Less(i, j int) bool { return h[i].Priority > h[j].Priority }
+
+// Swap implements the heap.Interface for entryHeap.
 func (h entryHeap[T]) Swap(i, j int) {
 	h[i], h[j] = h[j], h[i]
 	h[i].index = i
 	h[j].index = j
 }
 
+// Push adds an element to the heap.
 func (h *entryHeap[T]) Push(x any) {
 	n := len(*h)
 	entry := x.(*Entry[T])
@@ -229,6 +236,7 @@ func (h *entryHeap[T]) Push(x any) {
 	*h = append(*h, entry)
 }
 
+// Pop removes the element from the heap.
 func (h *entryHeap[T]) Pop() any {
 	old := *h
 	n := len(old)

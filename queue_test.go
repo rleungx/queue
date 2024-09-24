@@ -77,7 +77,7 @@ func TestPop(t *testing.T) {
 	}
 
 	// Ensure the queue is empty after popping all elements
-	assert.Nil(t, pq.Pop())
+	assert.Empty(t, pq.Pop())
 	assert.Empty(t, pq.Elems())
 }
 
