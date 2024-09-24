@@ -33,6 +33,7 @@ func TestNewPriorityQueue(t *testing.T) {
 	pqFull.Push(1, 1, time.Millisecond*200)
 	pqFull.Push(2, 2, time.Millisecond*200)
 	pqFull.Push(3, 3, time.Millisecond*200) // This should remove the element with priority 1
+	pqFull.Push(4, 1, time.Millisecond*200) // It will be rejected because the queue is full
 	assert.Len(t, pqFull.Elems(), 2)
 	assert.Equal(t, 3, pqFull.Elems()[0])
 	assert.Equal(t, 2, pqFull.Elems()[1])
@@ -85,10 +86,12 @@ func TestPeek(t *testing.T) {
 	t.Parallel()
 
 	pq := queue.NewPriorityQueue[int](5, time.Millisecond*100)
+	peek := pq.Peek()
+	assert.Empty(t, peek)
 	pq.Push(1, 1, time.Second)
 	pq.Push(3, 2, time.Second)
 	pq.Push(2, 3, time.Second)
-	peek := pq.Peek()
+	peek = pq.Peek()
 	assert.Equal(t, 2, peek)
 }
 
@@ -390,4 +393,40 @@ func TestDifferentTypes(t *testing.T) {
 	assert.Len(t, elemsStruct, 1)
 	assert.Equal(t, 3, elemsStruct[0].ID)
 	assert.Equal(t, "c", elemsStruct[0].Name)
+}
+
+func BenchmarkPush(b *testing.B) {
+	pq := queue.NewPriorityQueue[int](1000, time.Minute)
+
+	for i := 0; i < b.N; i++ {
+		pq.Push(i, i, time.Minute)
+	}
+}
+
+func BenchmarkPop(b *testing.B) {
+	pq := queue.NewPriorityQueue[int](1000, time.Minute)
+
+	for i := 0; i < 1000; i++ {
+		pq.Push(i, i, time.Minute)
+	}
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		pq.Pop()
+	}
+}
+
+func BenchmarkElems(b *testing.B) {
+	pq := queue.NewPriorityQueue[int](1000, time.Minute)
+
+	for i := 0; i < 1000; i++ {
+		pq.Push(i, i, time.Minute)
+	}
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		pq.Elems()
+	}
 }

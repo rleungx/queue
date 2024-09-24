@@ -27,12 +27,12 @@ import (
 
 func main() {
     // Create a new priority queue with a capacity of 10 and a cleanup interval of 1 minute
-    pq := queue.NewPriorityQueue[string](10, time.Minute)
+    pq := queue.NewPriorityQueue[string](10, time.Second)
 
     // Add items to the priority queue
-    pq.Push("v1", 1, 2*time.Minute)
-    pq.Push("v2", 2, time.Minute)
-    pq.Push("v3", 3, 3*time.Minute)
+    pq.Push("v1", 1, time.Second * 2)
+    pq.Push("v2", 2, time.Second)
+    pq.Push("v3", 3, time.Second * 3)
 
     // Show all items
     elems := pq.Elems()
@@ -57,6 +57,11 @@ func main() {
     // Show remaining items after removal
     elems = pq.Elems()
     fmt.Printf("Remaining items after removal: %v\n", elems)
+
+    time.Sleep(time.Second * 2)
+    // Show remaining items after cleanup
+    elems = pq.Elems()
+    fmt.Printf("Remaining items after cleanup: %v\n", elems)
 }
 ```
 

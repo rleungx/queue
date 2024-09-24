@@ -43,22 +43,22 @@ func NewPriorityQueue[T comparable](capacity int, cleanupInterval time.Duration)
 }
 
 func (pq *PriorityQueue[T]) Push(value T, priority int, ttl time.Duration) {
+	pq.Lock()
+	defer pq.Unlock()
+
+	if existingEntry, ok := pq.items[value]; ok {
+		// If the value already exists in the queue, update its priority.
+		existingEntry.Priority = priority
+		existingEntry.expireAt = time.Now().Add(ttl)
+		heap.Fix(&pq.entries, existingEntry.index)
+
+		return
+	}
+
 	entry := &Entry[T]{
 		Value:    value,
 		Priority: priority,
 		expireAt: time.Now().Add(ttl),
-		index:    new(int),
-	}
-
-	pq.Lock()
-	defer pq.Unlock()
-
-	if _, ok := pq.items[value]; ok {
-		// If the value already exists in the queue, update its priority.
-		pq.items[value].Priority = priority
-		pq.items[value].expireAt = time.Now().Add(ttl)
-
-		return
 	}
 
 	if len(pq.entries) >= pq.capacity {
@@ -68,11 +68,7 @@ func (pq *PriorityQueue[T]) Push(value T, priority int, ttl time.Duration) {
 		}
 
 		// Remove the lowest priority element
-		removed, ok := heap.Remove(&pq.entries, *pq.minIndex).(*Entry[T])
-		if !ok {
-			return
-		}
-
+		removed := heap.Remove(&pq.entries, *pq.minIndex).(*Entry[T])
 		delete(pq.items, removed.Value)
 	}
 
@@ -81,7 +77,7 @@ func (pq *PriorityQueue[T]) Push(value T, priority int, ttl time.Duration) {
 
 	// Update the lowest index.
 	if *pq.minIndex == -1 || pq.entries[*pq.minIndex].Priority >= priority {
-		pq.minIndex = entry.index
+		pq.minIndex = &entry.index
 	}
 }
 
@@ -94,11 +90,7 @@ func (pq *PriorityQueue[T]) Pop() (t any) {
 		return t
 	}
 
-	entry, ok := heap.Pop(&pq.entries).(*Entry[T])
-	if !ok {
-		return t
-	}
-
+	entry := heap.Pop(&pq.entries).(*Entry[T])
 	delete(pq.items, entry.Value)
 
 	return entry.Value
@@ -129,16 +121,15 @@ func (pq *PriorityQueue[T]) Elems() []T {
 			Value:    entry.Value,
 			Priority: entry.Priority,
 			expireAt: entry.expireAt,
-			index:    new(int),
+			index:    entry.index,
 		}
-		*(tempHeap[i].index) = *(entry.index)
 	}
 
 	heap.Init(&tempHeap)
 
 	for tempHeap.Len() > 0 {
-		entry, ok := heap.Pop(&tempHeap).(*Entry[T])
-		if ok && !entry.isExpired() {
+		entry := heap.Pop(&tempHeap).(*Entry[T])
+		if !entry.isExpired() {
 			rs = append(rs, entry.Value)
 		}
 	}
@@ -156,8 +147,8 @@ func (pq *PriorityQueue[T]) Remove(value T) {
 		delete(pq.items, value)
 
 		// Remove the entry from the heap
-		if *entry.index >= 0 && *entry.index < len(pq.entries) {
-			heap.Remove(&pq.entries, *entry.index)
+		if entry.index >= 0 && entry.index < len(pq.entries) {
+			heap.Remove(&pq.entries, entry.index)
 		}
 	}
 }
@@ -170,10 +161,7 @@ func (pq *PriorityQueue[T]) Cleanup() {
 	now := time.Now()
 
 	for range pq.entries.Len() {
-		entry, ok := heap.Pop(&pq.entries).(*Entry[T])
-		if !ok {
-			continue
-		}
+		entry := heap.Pop(&pq.entries).(*Entry[T])
 
 		if entry.expireAt.After(now) {
 			heap.Push(&pq.entries, entry)
@@ -214,7 +202,7 @@ type Entry[T any] struct {
 	Priority int
 	Value    T
 	expireAt time.Time
-	index    *int // The index of the item in the heap.
+	index    int // The index of the item in the heap.
 }
 
 // isExpired checks if the entry is expired.
@@ -229,19 +217,15 @@ func (h entryHeap[T]) Len() int           { return len(h) }
 func (h entryHeap[T]) Less(i, j int) bool { return h[i].Priority > h[j].Priority }
 func (h entryHeap[T]) Swap(i, j int) {
 	h[i], h[j] = h[j], h[i]
-	*h[i].index = i
-	*h[j].index = j
+	h[i].index = i
+	h[j].index = j
 }
 
 func (h *entryHeap[T]) Push(x any) {
 	n := len(*h)
-	entry, ok := x.(*Entry[T])
+	entry := x.(*Entry[T])
 
-	if !ok {
-		return
-	}
-
-	*entry.index = n
+	entry.index = n
 	*h = append(*h, entry)
 }
 
@@ -249,8 +233,8 @@ func (h *entryHeap[T]) Pop() any {
 	old := *h
 	n := len(old)
 	entry := old[n-1]
-	old[n-1] = nil    // avoid memory leak
-	*entry.index = -1 // for safety
+	old[n-1] = nil   // avoid memory leak
+	entry.index = -1 // for safety
 	*h = old[0 : n-1]
 
 	return entry
