@@ -27,7 +27,8 @@ import (
 
 func main() {
     // Create a new priority queue with a capacity of 10 and a cleanup interval of 1 minute
-    pq := queue.NewPriorityQueue[string](10, time.Second)
+    pq := queue.New[string](10, time.Second)
+    defer pq.Close()
 
     // Add items to the priority queue
     pq.Push("v1", 1, time.Second * 2)
