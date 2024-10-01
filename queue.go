@@ -6,67 +6,66 @@ import (
 	"time"
 )
 
-// PriorityQueue queue is a priority queue that supports adding, removing, and updating elements with priorities.
+// PriorityQueue is a priority queue that supports adding, removing, and updating elements with priorities.
 type PriorityQueue[T comparable] struct {
 	items    map[T]*Entry[T]
 	maxHeap  *entryHeap[T]
 	minHeap  *entryHeap[T]
 	capacity int
 	sync.RWMutex
-	done chan struct{}
-	wg   sync.WaitGroup
+	done   chan struct{}
+	wg     sync.WaitGroup
+	closed bool
 }
 
 // New constructs a priority queue.
 func New[T comparable](capacity int, cleanupInterval time.Duration) *PriorityQueue[T] {
-	if capacity <= 0 {
+	if capacity <= 0 || cleanupInterval <= 0 {
 		return nil
 	}
 
 	pq := &PriorityQueue[T]{
 		items:    make(map[T]*Entry[T], capacity),
-		maxHeap:  &entryHeap[T]{isMax: true},
-		minHeap:  &entryHeap[T]{isMax: false},
+		maxHeap:  &entryHeap[T]{isMax: true, entries: make([]*Entry[T], 0, capacity)},
+		minHeap:  &entryHeap[T]{isMax: false, entries: make([]*Entry[T], 0, capacity)},
 		capacity: capacity,
 		done:     make(chan struct{}),
 	}
 
 	pq.wg.Add(1) // Start a goroutine to clean up expired entries periodically.
-	go func() {
-		defer pq.wg.Done()
-		ticker := time.NewTicker(cleanupInterval)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ticker.C:
-				pq.Cleanup()
-			case <-pq.done:
-				return
-			}
-		}
-	}()
+	go pq.cleanupLoop(cleanupInterval)
 
 	return pq
 }
 
-// Push adds a value to the queue with a priority and ttl.
+// cleanupLoop periodically cleans up expired entries.
+func (pq *PriorityQueue[T]) cleanupLoop(interval time.Duration) {
+	defer pq.wg.Done()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			pq.Cleanup()
+		case <-pq.done:
+			return
+		}
+	}
+}
+
+// Push adds a value to the queue with a priority and TTL.
 func (pq *PriorityQueue[T]) Push(value T, priority int, ttl time.Duration) {
 	pq.Lock()
 	defer pq.Unlock()
 
+	if pq.closed {
+		return
+	}
+
 	expireAt := time.Now().Add(ttl)
 	if existingEntry, ok := pq.items[value]; ok {
-		oldPriority := existingEntry.Priority
-		oldExpireAt := existingEntry.expireAt
-
-		existingEntry.Priority = priority
-		existingEntry.expireAt = expireAt
-
-		if oldPriority != priority || oldExpireAt != expireAt {
-			heap.Fix(pq.maxHeap, existingEntry.maxIndex)
-			heap.Fix(pq.minHeap, existingEntry.minIndex)
-		}
+		pq.updateExistingEntry(existingEntry, priority, expireAt)
 		return
 	}
 
@@ -77,20 +76,12 @@ func (pq *PriorityQueue[T]) Push(value T, priority int, ttl time.Duration) {
 	}
 
 	if len(pq.items) >= pq.capacity {
-		if len(pq.minHeap.entries) > 0 && pq.minHeap.entries[0].Priority < priority {
-			// Remove the element with the lowest priority
-			removed := heap.Pop(pq.minHeap).(*Entry[T])
-			pq.removeFromMaxHeap(removed)
-			delete(pq.items, removed.Value)
-		} else {
-			// New element's priority is not high enough, don't add it
+		if !pq.removeLowestIfHigher(entry) {
 			return
 		}
 	}
 
-	heap.Push(pq.maxHeap, entry)
-	heap.Push(pq.minHeap, entry)
-	pq.items[value] = entry
+	pq.addNewEntry(entry)
 }
 
 // Pop returns the highest priority entry and removes it from the queue.
@@ -98,27 +89,43 @@ func (pq *PriorityQueue[T]) Pop() (value T) {
 	pq.Lock()
 	defer pq.Unlock()
 
-	if len(pq.maxHeap.entries) == 0 {
+	if pq.closed || pq.maxHeap.Len() == 0 {
 		return value
 	}
 
-	entry := heap.Pop(pq.maxHeap).(*Entry[T])
-	pq.removeFromMinHeap(entry)
-	delete(pq.items, entry.Value)
+	now := time.Now()
+	for pq.maxHeap.Len() > 0 {
+		entry := pq.maxHeap.entries[0]
+		if entry.expireAt.After(now) {
+			pq.removeHighestPriorityEntry()
+			return entry.Value
+		}
+		// Remove expired entry
+		pq.removeHighestPriorityEntry()
+	}
 
-	return entry.Value
+	return value
 }
 
 // Peek returns the highest priority entry without removing it.
 func (pq *PriorityQueue[T]) Peek() (value T) {
-	pq.RLock()
-	defer pq.RUnlock()
+	pq.Lock()
+	defer pq.Unlock()
 
-	if len(pq.maxHeap.entries) == 0 {
+	if pq.closed || pq.maxHeap.Len() == 0 {
 		return value
 	}
+	now := time.Now()
+	for pq.maxHeap.Len() > 0 {
+		entry := pq.maxHeap.entries[0]
+		if entry.expireAt.After(now) {
+			return entry.Value
+		}
+		// Remove expired entry
+		pq.removeHighestPriorityEntry()
+	}
 
-	return pq.maxHeap.entries[0].Value
+	return value
 }
 
 // Elems returns all elements in the queue sorted by priority from high to low.
@@ -126,6 +133,9 @@ func (pq *PriorityQueue[T]) Elems() []T {
 	pq.RLock()
 	defer pq.RUnlock()
 
+	if pq.closed || pq.maxHeap.Len() == 0 {
+		return nil
+	}
 	rs := make([]T, 0, len(pq.maxHeap.entries))
 	tempHeap := entryHeap[T]{entries: make([]*Entry[T], len(pq.maxHeap.entries)), isMax: true}
 
@@ -165,31 +175,39 @@ func (pq *PriorityQueue[T]) Remove(value T) {
 	}
 }
 
+// Close stops the cleanup goroutine.
+func (pq *PriorityQueue[T]) Close() {
+	pq.Lock()
+	if pq.closed {
+		pq.Unlock()
+		return
+	}
+	close(pq.done)
+	pq.closed = true
+	pq.Unlock()
+
+	// Wait for the cleanup loop to finish after releasing the lock
+	pq.wg.Wait()
+}
+
 // Cleanup removes expired entries from the queue.
 func (pq *PriorityQueue[T]) Cleanup() {
 	pq.Lock()
 	defer pq.Unlock()
 
-	now := time.Now()
-
-	// 创建一个临时切片来存储需要删除的条目
-	var toRemove []*Entry[T]
-
-	// 遍历最小堆，找出所有过期的条目
-	for i := 0; i < len(pq.minHeap.entries); i++ {
-		if pq.minHeap.entries[i].expireAt.Before(now) {
-			toRemove = append(toRemove, pq.minHeap.entries[i])
-		} else {
-			// 由于最小堆是按过期时间排序的，一旦遇到未过期的条目，就可以停止遍历
-			break
-		}
+	if pq.closed {
+		return
 	}
 
-	// 删除所有过期的条目
-	for _, entry := range toRemove {
-		pq.removeFromMinHeap(entry)
-		pq.removeFromMaxHeap(entry)
+	now := time.Now()
+	maxCleanup := 1000 // Set a reasonable maximum number of items to clean up
+	cleaned := 0
+
+	for pq.minHeap.Len() > 0 && pq.minHeap.entries[0].expireAt.Before(now) && cleaned < maxCleanup {
+		entry := heap.Pop(pq.minHeap).(*Entry[T])
+		heap.Remove(pq.maxHeap, entry.maxIndex)
 		delete(pq.items, entry.Value)
+		cleaned++
 	}
 }
 
@@ -217,10 +235,38 @@ func (pq *PriorityQueue[T]) Empty() bool {
 	return len(pq.maxHeap.entries) == 0
 }
 
-// Close stops the cleanup goroutine.
-func (pq *PriorityQueue[T]) Close() {
-	close(pq.done)
-	pq.wg.Wait()
+// updateExistingEntry updates an existing entry.
+func (pq *PriorityQueue[T]) updateExistingEntry(entry *Entry[T], priority int, expireAt time.Time) {
+	if entry.Priority != priority || entry.expireAt != expireAt {
+		entry.Priority = priority
+		entry.expireAt = expireAt
+		heap.Fix(pq.maxHeap, entry.maxIndex)
+		heap.Fix(pq.minHeap, entry.minIndex)
+	}
+}
+
+func (pq *PriorityQueue[T]) removeHighestPriorityEntry() {
+	entry := heap.Pop(pq.maxHeap).(*Entry[T])
+	heap.Remove(pq.minHeap, entry.minIndex)
+	delete(pq.items, entry.Value)
+}
+
+// tryReplaceLowestPriority attempts to replace the lowest priority entry.
+func (pq *PriorityQueue[T]) removeLowestIfHigher(newEntry *Entry[T]) bool {
+	if len(pq.minHeap.entries) > 0 && pq.minHeap.entries[0].Priority < newEntry.Priority {
+		removed := heap.Pop(pq.minHeap).(*Entry[T])
+		pq.removeFromMaxHeap(removed)
+		delete(pq.items, removed.Value)
+		return true
+	}
+	return false
+}
+
+// addNewEntry adds a new entry to the queue.
+func (pq *PriorityQueue[T]) addNewEntry(entry *Entry[T]) {
+	heap.Push(pq.maxHeap, entry)
+	heap.Push(pq.minHeap, entry)
+	pq.items[entry.Value] = entry
 }
 
 // Entry is a pair of region and its priority.
@@ -264,7 +310,11 @@ func (h entryHeap[T]) Swap(i, j int) {
 func (h *entryHeap[T]) Push(x interface{}) {
 	n := len(h.entries)
 	item := x.(*Entry[T])
-	item.maxIndex = n
+	if h.isMax {
+		item.maxIndex = n
+	} else {
+		item.minIndex = n
+	}
 	h.entries = append(h.entries, item)
 }
 
@@ -273,27 +323,25 @@ func (h *entryHeap[T]) Pop() interface{} {
 	n := len(old)
 	item := old[n-1]
 	old[n-1] = nil
-	item.maxIndex = -1
+	if h.isMax {
+		item.maxIndex = -1
+	} else {
+		item.minIndex = -1
+	}
 	h.entries = old[0 : n-1]
 	return item
 }
 
 // removeFromMaxHeap removes an entry from the max heap.
 func (pq *PriorityQueue[T]) removeFromMaxHeap(entry *Entry[T]) {
-	for i, e := range pq.maxHeap.entries {
-		if e == entry {
-			heap.Remove(pq.maxHeap, i)
-			return
-		}
+	if entry.maxIndex >= 0 && entry.maxIndex < len(pq.maxHeap.entries) {
+		heap.Remove(pq.maxHeap, entry.maxIndex)
 	}
 }
 
 // removeFromMinHeap removes an entry from the min heap.
 func (pq *PriorityQueue[T]) removeFromMinHeap(entry *Entry[T]) {
-	for i, e := range pq.minHeap.entries {
-		if e == entry {
-			heap.Remove(pq.minHeap, i)
-			return
-		}
+	if entry.minIndex >= 0 && entry.minIndex < len(pq.minHeap.entries) {
+		heap.Remove(pq.minHeap, entry.minIndex)
 	}
 }
