@@ -1252,14 +1252,6 @@ func TestIndexConsistency(t *testing.T) {
 
 // Helper functions to validate heap properties
 func isValidMaxHeap[T comparable](pq *queue.PriorityQueue[T]) bool {
-	// Note: We can't access private fields from test package, so we'll use a different approach
-	// This is a simplified version that just checks if operations work without panicking
-	defer func() {
-		if r := recover(); r != nil {
-			// If any operation panics, the heap is inconsistent
-		}
-	}()
-
 	// Try some operations to see if they work
 	pq.Size()
 	pq.Empty()
@@ -1269,13 +1261,6 @@ func isValidMaxHeap[T comparable](pq *queue.PriorityQueue[T]) bool {
 }
 
 func isValidMinHeap[T comparable](pq *queue.PriorityQueue[T]) bool {
-	// Similar simplified check
-	defer func() {
-		if r := recover(); r != nil {
-			// If any operation panics, the heap is inconsistent
-		}
-	}()
-
 	// Try some operations to see if they work
 	pq.Size()
 	pq.Empty()
@@ -1284,14 +1269,6 @@ func isValidMinHeap[T comparable](pq *queue.PriorityQueue[T]) bool {
 }
 
 func isIndexConsistent[T comparable](pq *queue.PriorityQueue[T]) bool {
-	// Since we can't access private fields from test package,
-	// we'll do a functional test instead
-	defer func() {
-		if r := recover(); r != nil {
-			// If any operation panics, there's likely an index issue
-		}
-	}()
-
 	// Try various operations that would fail if indices are wrong
 	pq.Peek()
 
