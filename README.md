@@ -5,13 +5,14 @@
 ![GitHub License](https://img.shields.io/github/license/rleungx/queue)
 [![Go Reference](https://pkg.go.dev/badge/github.com/rleungx/queue.svg)](https://pkg.go.dev/github.com/rleungx/queue)
 
-This project is a Go implementation of a priority queue with expiration functionality.
+This project is a Go implementation of a high-performance priority queue with TTL (Time To Live) expiration functionality.
 
 ## Features
 
-- Priority queue with custom types
-- Automatic cleanup of expired entries
-- Thread-safe operations
+- **High Performance**: Optimized with object pooling and zero-allocation operations
+- **TTL Support**: Automatic cleanup of expired entries with configurable intervals
+- **Thread-Safe**: Concurrent operations with optimized read-write locking
+- **Generic Types**: Support for any comparable type using Go generics
 
 ## Usage
 
