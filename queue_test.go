@@ -1,16 +1,16 @@
-package queue_test
+package queue
 
 import (
 	"context"
 	"fmt"
 	"math"
 	"math/rand"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/rleungx/queue"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/goleak"
 )
@@ -23,7 +23,7 @@ func TestNew(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 
-	pq := queue.New[int](5, time.Millisecond*100)
+	pq := New[int](5, time.Millisecond*100)
 	defer pq.Close()
 	assert.NotNil(t, pq, "Newly created PriorityQueue should not be nil")
 	assert.Equal(5, pq.Capacity(), "Capacity should be 5")
@@ -39,7 +39,7 @@ func TestPush(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 
-	pq := queue.New[int](5, time.Millisecond*100)
+	pq := New[int](5, time.Millisecond*100)
 	defer pq.Close()
 
 	// Test empty queue
@@ -113,7 +113,7 @@ func TestPop(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 
-	pq := queue.New[int](5, time.Millisecond*100)
+	pq := New[int](5, time.Millisecond*100)
 	defer pq.Close()
 	assert.NotNil(t, pq, "Newly created PriorityQueue should not be nil")
 
@@ -157,7 +157,7 @@ func TestPeekDoesNotModifyQueue(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 
-	pq := queue.New[int](5, time.Millisecond*100)
+	pq := New[int](5, time.Millisecond*100)
 	defer pq.Close()
 	peek := pq.Peek()
 	assert.Empty(peek, "Peeking empty queue should return zero value")
@@ -172,7 +172,7 @@ func TestRemove(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 
-	pq := queue.New[int](5, time.Millisecond*100)
+	pq := New[int](5, time.Millisecond*100)
 	defer pq.Close()
 
 	// Test removing from an empty queue
@@ -230,7 +230,7 @@ func TestSizeAndEmpty(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 
-	pq := queue.New[int](5, time.Millisecond*100)
+	pq := New[int](5, time.Millisecond*100)
 	defer pq.Close()
 	assert.NotNil(t, pq, "Newly created PriorityQueue should not be nil")
 
@@ -263,7 +263,7 @@ func TestTTLExpiration(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 
-	pq := queue.New[int](5, time.Millisecond*100)
+	pq := New[int](5, time.Millisecond*100)
 	defer pq.Close()
 
 	// Test immediate expiration
@@ -342,7 +342,7 @@ func TestCleanup(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 
-	pq := queue.New[int](10, time.Millisecond*50)
+	pq := New[int](10, time.Millisecond*50)
 	defer pq.Close()
 
 	// Add elements with different expiration times
@@ -402,7 +402,7 @@ func TestPriorityAndExpiration(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 
-	pq := queue.New[int](10, time.Millisecond*100)
+	pq := New[int](10, time.Millisecond*100)
 	defer pq.Close()
 	pq.Push(1, 1, time.Millisecond*100)
 	pq.Push(2, 3, time.Millisecond*50)
@@ -428,71 +428,11 @@ func TestPriorityAndExpiration(t *testing.T) {
 	assert.Empty(expectedValues, "All expected elements should be in the queue")
 }
 
-func TestCleanupWithActiveEntries(t *testing.T) {
-	t.Parallel()
-	assert := assert.New(t)
-
-	pq := queue.New[int](10, time.Millisecond*100)
-	defer pq.Close()
-
-	// Add elements with different expiration times
-	pq.Push(1, 1, time.Millisecond*50)  // Will expire soon
-	pq.Push(2, 2, time.Millisecond*200) // Will expire later
-	pq.Push(3, 3, time.Millisecond*500) // Will expire much later
-	pq.Push(4, 4, time.Second)          // Will expire last
-
-	assert.Len(pq.Elems(), 4, "Queue should initially have 4 elements")
-
-	// First cleanup: should remove the first element
-	time.Sleep(time.Millisecond * 70)
-	pq.Cleanup()
-	elems := pq.Elems()
-	assert.Len(elems, 3, "Queue should have 3 elements after first cleanup")
-	assert.NotContains(elems, 1, "Element 1 should be removed")
-
-	// Second cleanup: should remove the second element
-	time.Sleep(time.Millisecond * 150)
-	pq.Cleanup()
-	elems = pq.Elems()
-	assert.Len(elems, 2, "Queue should have 2 elements after second cleanup")
-	assert.NotContains(elems, 2, "Element 2 should be removed")
-
-	// Add a new element during cleanup process
-	pq.Push(5, 5, time.Millisecond*300)
-
-	// Third cleanup: should keep the newly added element
-	time.Sleep(time.Millisecond * 250)
-	pq.Cleanup()
-	elems = pq.Elems()
-	assert.Len(elems, 3, "Queue should have 3 elements")
-	assert.Contains(elems, 4, "Element 4 should still be present")
-	assert.Contains(elems, 5, "Newly added element 5 should be present")
-
-	// Final cleanup
-	time.Sleep(time.Second)
-	pq.Cleanup()
-	elems = pq.Elems()
-	assert.Empty(elems, "Queue should be empty after final cleanup")
-
-	// Test cleanup doesn't affect newly added non-expired element
-	pq.Push(6, 6, time.Millisecond*100)
-	time.Sleep(time.Millisecond * 50)
-	pq.Cleanup()
-	elems = pq.Elems()
-	assert.Len(elems, 1, "Queue should have 1 element")
-	assert.Equal(6, elems[0], "Element 6 should still be present")
-
-	// Ensure the last element is also correctly cleaned up
-	time.Sleep(time.Millisecond * 60)
-	pq.Cleanup()
-	assert.Empty(pq.Elems(), "Queue should be empty after all elements expire")
-}
-
 func TestConcurrentAddAndRemove(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 
-	pq := queue.New[int](10, time.Millisecond*100)
+	pq := New[int](10, time.Millisecond*100)
 	defer pq.Close()
 	for i := 1; i <= 5; i++ {
 		pq.Push(i, i, time.Second)
@@ -530,7 +470,7 @@ func TestPriorityChange(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 
-	pq := queue.New[int](10, time.Millisecond*100)
+	pq := New[int](10, time.Millisecond*100)
 	defer pq.Close()
 	pq.Push(1, 1, time.Second)
 	pq.Push(2, 3, time.Second)
@@ -552,7 +492,7 @@ func TestOrderAfterMultipleRemovals(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 
-	pq := queue.New[int](10, time.Millisecond*100)
+	pq := New[int](10, time.Millisecond*100)
 	defer pq.Close()
 	pq.Push(4, 1, time.Second)
 	pq.Push(3, 3, time.Second)
@@ -571,7 +511,7 @@ func TestMixedOperations(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 
-	pq := queue.New[int](10, time.Millisecond*100)
+	pq := New[int](10, time.Millisecond*100)
 	defer pq.Close()
 
 	pq.Push(1, 1, time.Millisecond*50)
@@ -597,7 +537,7 @@ func TestDifferentTypes(t *testing.T) {
 	assert := assert.New(t)
 
 	// Test with int type
-	pqInt := queue.New[int](10, time.Millisecond*100)
+	pqInt := New[int](10, time.Millisecond*100)
 	defer pqInt.Close()
 	pqInt.Push(1, 1, time.Millisecond*50)
 	pqInt.Push(2, 3, time.Millisecond*200)
@@ -613,7 +553,7 @@ func TestDifferentTypes(t *testing.T) {
 	assert.Equal(3, elemsInt[0])
 
 	// Test with string type
-	pqString := queue.New[string](10, time.Millisecond*100)
+	pqString := New[string](10, time.Millisecond*100)
 	defer pqString.Close()
 	pqString.Push("a", 1, time.Millisecond*50)
 	pqString.Push("b", 3, time.Millisecond*200)
@@ -634,7 +574,7 @@ func TestDifferentTypes(t *testing.T) {
 		Name string
 	}
 
-	pqStruct := queue.New[CustomStruct](10, time.Millisecond*100)
+	pqStruct := New[CustomStruct](10, time.Millisecond*100)
 	defer pqStruct.Close()
 	pqStruct.Push(CustomStruct{ID: 1, Name: "a"}, 1, time.Millisecond*50)
 	pqStruct.Push(CustomStruct{ID: 2, Name: "b"}, 3, time.Millisecond*200)
@@ -656,7 +596,7 @@ func TestBoundaryConditions(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 
-	pq := queue.New[string](5, time.Millisecond*100)
+	pq := New[string](5, time.Millisecond*100)
 	defer pq.Close()
 
 	// Test empty queue operations
@@ -672,7 +612,7 @@ func TestBoundaryConditions(t *testing.T) {
 	assert.Equal("", pq.Pop(), "Should be able to pop empty string")
 
 	// Test zero capacity
-	pqZero := queue.New[string](0, time.Minute)
+	pqZero := New[string](0, time.Minute)
 	assert.Nil(pqZero, "Zero capacity queue should return nil")
 
 	// Test extreme priorities
@@ -719,7 +659,7 @@ func TestClose(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 
-	pq := queue.New[string](5, time.Millisecond*100)
+	pq := New[string](5, time.Millisecond*100)
 
 	// Add some elements
 	pq.Push("item1", 1, time.Minute)
@@ -730,6 +670,8 @@ func TestClose(t *testing.T) {
 	// Close the queue
 	pq.Close()
 	pq.Cleanup()
+	assert.Zero(pq.Size(), "Queue size should be zero after closing")
+	assert.True(pq.Empty(), "Queue should report empty after closing")
 
 	// Try to add an element after closing
 	pq.Push("item3", 3, time.Minute)
@@ -759,6 +701,8 @@ func TestClose(t *testing.T) {
 	// Verify queue state hasn't changed after Pop and Peek operations
 	elems = pq.Elems()
 	assert.Empty(elems, "Queue should remain empty after operations on closed queue")
+	assert.Zero(pq.Size(), "Queue size should stay zero after operations on closed queue")
+	assert.True(pq.Empty(), "Queue should stay empty after operations on closed queue")
 
 	// Try to add an element to a closed queue
 	pq.Push("item4", 4, time.Minute)
@@ -769,7 +713,7 @@ func TestExpiredEntriesHandling(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 
-	pq := queue.New[string](5, time.Millisecond*100)
+	pq := New[string](5, time.Millisecond*100)
 	defer pq.Close()
 
 	// Add some entries, some of which will expire quickly
@@ -808,7 +752,7 @@ func TestConcurrentPushPop(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 
-	pq := queue.New[int](100, time.Millisecond*50)
+	pq := New[int](100, time.Millisecond*50)
 	defer pq.Close()
 
 	const numGoroutines = 20
@@ -874,7 +818,7 @@ func TestConcurrentPushRemove(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 
-	pq := queue.New[string](50, time.Millisecond*100)
+	pq := New[string](50, time.Millisecond*100)
 	defer pq.Close()
 
 	const numGoroutines = 10
@@ -932,7 +876,7 @@ func TestConcurrentCapacityLimit(t *testing.T) {
 	assert := assert.New(t)
 
 	const capacity = 20
-	pq := queue.New[int](capacity, time.Millisecond*50)
+	pq := New[int](capacity, time.Millisecond*50)
 	defer pq.Close()
 
 	const numGoroutines = 15
@@ -992,7 +936,7 @@ func TestConcurrentTTLOperations(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 
-	pq := queue.New[string](100, time.Millisecond*20) // Fast cleanup
+	pq := New[string](100, time.Millisecond*20) // Fast cleanup
 	defer pq.Close()
 
 	const numGoroutines = 8
@@ -1066,7 +1010,7 @@ func TestStressConcurrentOperations(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 
-	pq := queue.New[int](200, time.Millisecond*30)
+	pq := New[int](200, time.Millisecond*30)
 	defer pq.Close()
 
 	const duration = time.Millisecond * 500
@@ -1127,7 +1071,7 @@ func TestStressConcurrentOperations(t *testing.T) {
 
 // Test potential race condition in Close method
 func TestConcurrentClose(t *testing.T) {
-	pq := queue.New[string](10, time.Millisecond*100)
+	pq := New[string](10, time.Millisecond*100)
 
 	var wg sync.WaitGroup
 	numGoroutines := 10
@@ -1145,39 +1089,9 @@ func TestConcurrentClose(t *testing.T) {
 	// Should not panic or cause any issues
 }
 
-// Test operations after close
-func TestOperationsAfterClose(t *testing.T) {
-	pq := queue.New[string](10, time.Millisecond*100)
-
-	// Add some items
-	pq.Push("item1", 1, time.Minute)
-	pq.Push("item2", 2, time.Minute)
-
-	// Close the queue
-	pq.Close()
-
-	// These operations should not panic
-	pq.Push("item3", 3, time.Minute) // Should be ignored
-	value := pq.Pop()                // Should return zero value
-	if value != "" {
-		t.Errorf("Expected empty string after close, got %v", value)
-	}
-
-	value = pq.Peek() // Should return zero value
-	if value != "" {
-		t.Errorf("Expected empty string after close, got %v", value)
-	}
-
-	// Size should still work
-	size := pq.Size()
-	if size < 0 {
-		t.Errorf("Size should not be negative: %d", size)
-	}
-}
-
 // Test potential panic in cleanup when closed
 func TestCleanupAfterClose(t *testing.T) {
-	pq := queue.New[string](10, time.Millisecond*10) // Very short cleanup interval
+	pq := New[string](10, time.Millisecond*10) // Very short cleanup interval
 
 	// Add items that will expire quickly
 	pq.Push("item1", 1, time.Nanosecond)
@@ -1195,7 +1109,7 @@ func TestCleanupAfterClose(t *testing.T) {
 
 // Test potential index corruption during concurrent operations
 func TestIndexConsistency(t *testing.T) {
-	pq := queue.New[int](100, time.Minute*10) // Long cleanup interval
+	pq := New[int](100, time.Minute*10) // Long cleanup interval
 	defer pq.Close()
 
 	var wg sync.WaitGroup
@@ -1238,58 +1152,84 @@ func TestIndexConsistency(t *testing.T) {
 
 	wg.Wait()
 
-	// Verify heap property is maintained
-	if !isValidMaxHeap(pq) {
-		t.Error("Max heap property violated")
-	}
-	if !isValidMinHeap(pq) {
-		t.Error("Min heap property violated")
-	}
-	if !isIndexConsistent(pq) {
-		t.Error("Index consistency violated")
-	}
-}
+	assertQueueStateConsistent(t, pq)
 
-// Helper functions to validate heap properties
-func isValidMaxHeap[T comparable](pq *queue.PriorityQueue[T]) bool {
-	// Try some operations to see if they work
-	pq.Size()
-	pq.Empty()
-	pq.Peek()
-
-	return true
-}
-
-func isValidMinHeap[T comparable](pq *queue.PriorityQueue[T]) bool {
-	// Try some operations to see if they work
-	pq.Size()
-	pq.Empty()
-
-	return true
-}
-
-func isIndexConsistent[T comparable](pq *queue.PriorityQueue[T]) bool {
-	// Try various operations that would fail if indices are wrong
-	pq.Peek()
-
-	// Try to remove a few items and add them back
-	var removedItems []T
+	var removedItems []int
 	for i := 0; i < 3 && !pq.Empty(); i++ {
-		item := pq.Pop()
-		removedItems = append(removedItems, item)
+		removedItems = append(removedItems, pq.Pop())
 	}
-
-	// Add items back (this tests the heap operations)
 	for _, item := range removedItems {
 		pq.Push(item, 1, time.Minute)
 	}
 
-	return true
+	assertQueueStateConsistent(t, pq)
+}
+
+func assertQueueStateConsistent[T comparable](t *testing.T, pq *PriorityQueue[T]) {
+	t.Helper()
+
+	if len(pq.items) != len(pq.expiryHeap.entries) {
+		t.Fatalf("items/expiry heap size mismatch: items=%d expiry=%d", len(pq.items), len(pq.expiryHeap.entries))
+	}
+
+	for index, entry := range pq.priorityHeap.entries {
+		if entry == nil {
+			t.Fatalf("priority heap contains nil entry at index %d", index)
+		}
+		if entry.priorityIndex != index {
+			t.Fatalf("priority index mismatch at %d: entry reports %d", index, entry.priorityIndex)
+		}
+		if entry.live && pq.items[entry.Value] != entry {
+			t.Fatalf("live priority heap entry at %d is not reachable from items map", index)
+		}
+	}
+
+	for index, entry := range pq.expiryHeap.entries {
+		if entry == nil {
+			t.Fatalf("expiry heap contains nil entry at index %d", index)
+		}
+		if !entry.live {
+			t.Fatalf("expiry heap contains stale entry at index %d", index)
+		}
+		if entry.expiryIndex != index {
+			t.Fatalf("expiry index mismatch at %d: entry reports %d", index, entry.expiryIndex)
+		}
+		if mapped := pq.items[entry.Value]; mapped != entry {
+			t.Fatalf("expiry heap entry at %d is not reachable from items map", index)
+		}
+		if index > 0 {
+			parent := (index - 1) / 2
+			if pq.expiryHeap.less(index, parent) {
+				t.Fatalf("expiry heap order violated: child %d should not sort before parent %d", index, parent)
+			}
+		}
+	}
+
+	for value, entry := range pq.items {
+		if !entry.live {
+			t.Fatalf("items map contains stale entry for value %v", value)
+		}
+		if entry.Value != value {
+			t.Fatalf("entry value mismatch for key %v", value)
+		}
+		if entry.priorityIndex < 0 || entry.priorityIndex >= len(pq.priorityHeap.entries) {
+			t.Fatalf("priority index out of range for value %v: %d", value, entry.priorityIndex)
+		}
+		if pq.priorityHeap.entries[entry.priorityIndex] != entry {
+			t.Fatalf("priority heap does not point back to value %v", value)
+		}
+		if entry.expiryIndex < 0 || entry.expiryIndex >= len(pq.expiryHeap.entries) {
+			t.Fatalf("expiry index out of range for value %v: %d", value, entry.expiryIndex)
+		}
+		if pq.expiryHeap.entries[entry.expiryIndex] != entry {
+			t.Fatalf("expiry heap does not point back to value %v", value)
+		}
+	}
 }
 
 // Test edge case: removing non-existent item
 func TestRemoveNonExistent(t *testing.T) {
-	pq := queue.New[string](10, time.Minute)
+	pq := New[string](10, time.Minute)
 	defer pq.Close()
 
 	// Remove from empty queue
@@ -1307,14 +1247,12 @@ func TestRemoveNonExistent(t *testing.T) {
 		t.Errorf("Expected size 2, got %d", pq.Size())
 	}
 
-	if !isIndexConsistent(pq) {
-		t.Error("Index consistency violated after removing non-existent item")
-	}
+	assertQueueStateConsistent(t, pq)
 }
 
 // Test edge case: capacity 1
 func TestCapacityOne(t *testing.T) {
-	pq := queue.New[string](1, time.Minute)
+	pq := New[string](1, time.Minute)
 	defer pq.Close()
 
 	// Add first item
@@ -1349,7 +1287,7 @@ func TestCapacityOne(t *testing.T) {
 
 // Test capacity limits more thoroughly
 func TestCapacityLimits(t *testing.T) {
-	pq := queue.New[string](3, time.Minute)
+	pq := New[string](3, time.Minute)
 	defer pq.Close()
 
 	// Fill to capacity
@@ -1412,7 +1350,7 @@ func TestCapacityLimits(t *testing.T) {
 
 // Test negative capacity edge case
 func TestNegativeCapacity(t *testing.T) {
-	pq := queue.New[string](-1, time.Minute)
+	pq := New[string](-1, time.Minute)
 	if pq != nil {
 		t.Error("Expected nil for negative capacity")
 	}
@@ -1420,7 +1358,7 @@ func TestNegativeCapacity(t *testing.T) {
 
 // Test zero cleanup interval
 func TestZeroCleanupInterval(t *testing.T) {
-	pq := queue.New[string](10, 0)
+	pq := New[string](10, 0)
 	if pq != nil {
 		t.Error("Expected nil for zero cleanup interval")
 	}
@@ -1428,7 +1366,7 @@ func TestZeroCleanupInterval(t *testing.T) {
 
 // Test negative cleanup interval
 func TestNegativeCleanupInterval(t *testing.T) {
-	pq := queue.New[string](10, -time.Second)
+	pq := New[string](10, -time.Second)
 	if pq != nil {
 		t.Error("Expected nil for negative cleanup interval")
 	}
@@ -1437,7 +1375,7 @@ func TestNegativeCleanupInterval(t *testing.T) {
 // TestCleanupLimitIssue tests what happens when there are more expired items than maxCleanupBatch
 func TestCleanupLimitIssue(t *testing.T) {
 	// Create a large capacity queue to force maxCleanupBatch limit
-	pq := queue.New[int](2000, time.Second)
+	pq := New[int](2000, time.Second)
 	defer pq.Close()
 
 	// Add many items that expire quickly - more than maxCleanupBatch (1000)
@@ -1450,7 +1388,7 @@ func TestCleanupLimitIssue(t *testing.T) {
 
 	sizeBefore := pq.Size()
 
-	// Trigger one cleanup cycle - should only clean up adaptive batch size
+	// Trigger one cleanup cycle - should only clean up one configured batch
 	start := time.Now()
 	pq.Cleanup()
 	cleanupDuration := time.Since(start)
@@ -1462,16 +1400,15 @@ func TestCleanupLimitIssue(t *testing.T) {
 	assert.LessOrEqual(t, cleanupDuration, time.Millisecond*5, "Cleanup should complete in reasonable time")
 	assert.GreaterOrEqual(t, cleanedItems, sizeBefore/10, "Cleanup should remove a reasonable number of items")
 
-	// Get adaptive metrics
-	metrics := pq.GetAdaptiveMetrics()
+	// Get cleanup metrics
+	metrics := pq.GetCleanupMetrics()
 
-	// Cleanup should respect the adaptive batch size
+	// Cleanup should respect the configured batch size
 	assert.LessOrEqual(t, cleanedItems, metrics.CurrentCleanupBatchSize,
-		"Cleanup should not exceed the adaptive batch size")
+		"Cleanup should not exceed the configured cleanup batch size")
 
-	// Verify that cleanup was adaptive (initial cleanup uses base size)
-	assert.LessOrEqual(t, cleanedItems, metrics.CurrentCleanupBatchSize,
-		"Cleanup should respect adaptive batch size limits")
+	assert.Equal(t, 500, metrics.CurrentCleanupBatchSize,
+		"Cleanup batch size should stay fixed for a 2000-capacity queue")
 
 	// If there are still expired items, test Pop() performance
 	if sizeAfter > 0 {
@@ -1507,94 +1444,79 @@ func TestCleanupLimitIssue(t *testing.T) {
 	}
 }
 
-// TestAdaptiveCleanup tests the adaptive cleanup strategy
-func TestAdaptiveCleanup(t *testing.T) {
-	// Create a queue with large capacity to test adaptive behavior
-	pq := queue.New[int](2000, time.Millisecond*100)
+// TestCleanupPolicyMetrics tests the fixed cleanup policy and observed metrics.
+func TestCleanupPolicyMetrics(t *testing.T) {
+	// Create a queue with large capacity and many immediately expired items.
+	pq := New[int](2000, time.Millisecond*100)
 	defer pq.Close()
 
-	// Test case 1: High expiration rate scenario
-	// Add many items with short TTL
 	for i := 0; i < 1800; i++ {
 		pq.Push(i, i, time.Nanosecond) // Expire immediately
 	}
 
-	// Wait for expiration
 	time.Sleep(time.Millisecond * 10)
 
-	// Perform several cleanup cycles to build up metrics
 	for i := 0; i < 5; i++ {
 		pq.Cleanup()
 		time.Sleep(time.Millisecond * 10)
 	}
 
-	finalMetrics := pq.GetAdaptiveMetrics()
+	finalMetrics := pq.GetCleanupMetrics()
+	assert.Equal(t, 500, finalMetrics.CurrentCleanupBatchSize,
+		"Cleanup batch size should remain fixed for a 2000-capacity queue")
+	assert.Equal(t, 5, finalMetrics.TotalCleanupsPerformed,
+		"Cleanup count should track how many cleanup cycles ran")
+	assert.Greater(t, finalMetrics.AverageExpiredPerCleanup, 0.0,
+		"Observed cleanup metrics should reflect expired work being done")
 
-	// In high expiration rate, batch size should increase from initial
-	// (2000 capacity = 500 initial batch size, should adapt upward)
-	assert.Greater(t, finalMetrics.CurrentCleanupBatchSize, 500,
-		"Adaptive batch size should increase from initial value in high expiration scenarios")
-
-	// Test case 2: Low expiration rate scenario
-	// Create new queue for clean test
-	pqLow := queue.New[int](2000, time.Millisecond*100)
+	// Low expiration workload should use the same fixed cleanup batch.
+	pqLow := New[int](2000, time.Millisecond*100)
 	defer pqLow.Close()
 
-	// Add few items with short TTL
 	for i := 0; i < 50; i++ {
 		pqLow.Push(i, i, time.Nanosecond)
 	}
 
-	// Add many items with long TTL
 	for i := 50; i < 1000; i++ {
 		pqLow.Push(i, i, time.Hour)
 	}
 
 	time.Sleep(time.Millisecond * 10)
 
-	// Perform several cleanup cycles
 	for i := 0; i < 5; i++ {
 		pqLow.Cleanup()
 		time.Sleep(time.Millisecond * 10)
 	}
 
-	lowMetrics := pqLow.GetAdaptiveMetrics()
+	lowMetrics := pqLow.GetCleanupMetrics()
+	assert.Equal(t, 500, lowMetrics.CurrentCleanupBatchSize,
+		"Cleanup batch size should remain fixed across workloads")
+	assert.Equal(t, finalMetrics.CurrentCleanupBatchSize, lowMetrics.CurrentCleanupBatchSize,
+		"High- and low-expiration workloads should use the same configured batch size")
 
-	// In low expiration rate, batch size should decrease
-	assert.Less(t, lowMetrics.CurrentCleanupBatchSize, 1000,
-		"Adaptive batch size should decrease below 1000 in low expiration scenarios")
-
-	// Test case 3: Adaptive Pop behavior
-	// Create queue with many expired items
-	pqPop := queue.New[int](1000, time.Second)
+	// Read-path cleanup should also stay bounded and efficient.
+	pqPop := New[int](1000, time.Second)
 	defer pqPop.Close()
 
-	// Add expired items
 	for i := 0; i < 800; i++ {
 		pqPop.Push(i, i, time.Nanosecond)
 	}
 
-	// Add one fresh item
 	pqPop.Push(9999, 9999, time.Hour)
 
 	time.Sleep(time.Millisecond * 10)
 
-	// Build up high expiration metrics
-	for i := 0; i < 3; i++ {
-		pqPop.Cleanup()
-	}
-
-	// Test Pop performance with adaptive limit
 	start := time.Now()
 	value := pqPop.Pop()
 	duration := time.Since(start)
 
-	// Should get the fresh item (9999) and not take too long
 	assert.Equal(t, 9999, value, "Should pop the fresh item with highest priority")
-
-	// Pop shouldn't take too long even with many expired items
 	assert.LessOrEqual(t, duration, time.Millisecond*10,
 		"Pop should be efficient even with many expired items")
+
+	popMetrics := pqPop.GetCleanupMetrics()
+	assert.Positive(t, popMetrics.CurrentPopLimit,
+		"Read-path cleanup budget should be reported as a positive fixed limit")
 }
 
 // TestInitialCleanupBatchSizing tests the new capacity-based initial cleanup batch sizing
@@ -1619,17 +1541,113 @@ func TestInitialCleanupBatchSizing(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(fmt.Sprintf("Capacity%d", tc.capacity), func(t *testing.T) {
-			pq := queue.New[int](tc.capacity, time.Second)
+			pq := New[int](tc.capacity, time.Second)
 			if pq == nil {
 				t.Fatalf("Failed to create queue with capacity %d", tc.capacity)
 			}
 			defer pq.Close()
 
-			metrics := pq.GetAdaptiveMetrics()
+			metrics := pq.GetCleanupMetrics()
 			actualBatchSize := metrics.CurrentCleanupBatchSize
 
 			assert.Equal(t, tc.expectedBatchSize, actualBatchSize, tc.description)
 		})
+	}
+}
+
+func TestPushExpiredEntryDoesNotEvictActiveEntries(t *testing.T) {
+	pq := New[string](2, time.Hour)
+	if pq == nil {
+		t.Fatal("expected queue to be created")
+	}
+	defer pq.Close()
+
+	pq.Push("low", 1, time.Hour)
+	pq.Push("high", 10, time.Hour)
+	pq.Push("expired", 100, -time.Second)
+
+	if got := pq.Size(); got != 2 {
+		t.Fatalf("expected size 2, got %d", got)
+	}
+
+	elems := pq.Elems()
+	if len(elems) != 2 {
+		t.Fatalf("expected 2 active elements, got %d: %v", len(elems), elems)
+	}
+	if elems[0] != "high" || elems[1] != "low" {
+		t.Fatalf("unexpected elems order/content: %v", elems)
+	}
+}
+
+func TestPushAtCapacityReusesExpiredSlotBeforeEvictingActiveEntry(t *testing.T) {
+	pq := New[string](2, time.Hour)
+	if pq == nil {
+		t.Fatal("expected queue to be created")
+	}
+	defer pq.Close()
+
+	pq.Push("low-long", 1, time.Hour)
+	pq.Push("high-short", 10, 10*time.Millisecond)
+
+	time.Sleep(30 * time.Millisecond)
+	pq.Push("mid", 5, time.Hour)
+
+	elems := pq.Elems()
+	if len(elems) != 2 {
+		t.Fatalf("expected 2 live elements, got %d: %v", len(elems), elems)
+	}
+	if elems[0] != "mid" || elems[1] != "low-long" {
+		t.Fatalf("unexpected elems after reusing expired slot: %v", elems)
+	}
+}
+
+func TestPriorityHeapMaxDescendantIgnoresNonDescendants(t *testing.T) {
+	entries := []*Entry[int]{
+		{Priority: 100, priorityIndex: 0, live: true},
+		{Priority: 50, priorityIndex: 1, live: true},
+		{Priority: 40, priorityIndex: 2, live: true},
+		{Priority: 10, priorityIndex: 3, live: true},
+		{Priority: 11, priorityIndex: 4, live: true},
+		{Priority: 999, priorityIndex: 5, live: true},
+		{Priority: 998, priorityIndex: 6, live: true},
+		{Priority: 12, priorityIndex: 7, live: true},
+		{Priority: 13, priorityIndex: 8, live: true},
+		{Priority: 14, priorityIndex: 9, live: true},
+		{Priority: 15, priorityIndex: 10, live: true},
+	}
+	h := &priorityHeap[int]{entries: entries}
+
+	index, isGrandChild := h.maxDescendant(1)
+	if index != 10 {
+		t.Fatalf("expected max descendant index 10, got %d", index)
+	}
+	if !isGrandChild {
+		t.Fatal("expected max descendant to be a grandchild")
+	}
+}
+
+func TestPriorityHeapMinDescendantIgnoresNonDescendants(t *testing.T) {
+	entries := []*Entry[int]{
+		{Priority: 0, priorityIndex: 0, live: true},
+		{Priority: 50, priorityIndex: 1, live: true},
+		{Priority: 40, priorityIndex: 2, live: true},
+		{Priority: 10, priorityIndex: 3, live: true},
+		{Priority: 11, priorityIndex: 4, live: true},
+		{Priority: -999, priorityIndex: 5, live: true},
+		{Priority: -998, priorityIndex: 6, live: true},
+		{Priority: 12, priorityIndex: 7, live: true},
+		{Priority: 13, priorityIndex: 8, live: true},
+		{Priority: 14, priorityIndex: 9, live: true},
+		{Priority: 15, priorityIndex: 10, live: true},
+	}
+	h := &priorityHeap[int]{entries: entries}
+
+	index, isGrandChild := h.minDescendant(1)
+	if index != 3 {
+		t.Fatalf("expected min descendant index 3, got %d", index)
+	}
+	if isGrandChild {
+		t.Fatal("expected min descendant to be a child")
 	}
 }
 
@@ -1639,7 +1657,7 @@ func TestInitialCleanupBatchSizing(t *testing.T) {
 
 // BenchmarkPush benchmarks the Push operation
 func BenchmarkPush(b *testing.B) {
-	pq := queue.New[int](100000, time.Second)
+	pq := New[int](100000, time.Second)
 	defer pq.Close()
 
 	b.ResetTimer()
@@ -1650,7 +1668,7 @@ func BenchmarkPush(b *testing.B) {
 
 // BenchmarkPop benchmarks the Pop operation
 func BenchmarkPop(b *testing.B) {
-	pq := queue.New[int](1000, time.Second)
+	pq := New[int](1000, time.Second)
 	defer pq.Close()
 
 	// Pre-populate the queue
@@ -1672,7 +1690,7 @@ func BenchmarkPop(b *testing.B) {
 
 // BenchmarkPeek benchmarks the Peek operation
 func BenchmarkPeek(b *testing.B) {
-	pq := queue.New[int](1000, time.Second)
+	pq := New[int](1000, time.Second)
 	defer pq.Close()
 
 	// Pre-populate the queue
@@ -1688,7 +1706,7 @@ func BenchmarkPeek(b *testing.B) {
 
 // BenchmarkRemove benchmarks the Remove operation
 func BenchmarkRemove(b *testing.B) {
-	pq := queue.New[int](10000, time.Second)
+	pq := New[int](10000, time.Second)
 	defer pq.Close()
 
 	// Pre-populate the queue with a fixed number of elements
@@ -1712,7 +1730,7 @@ func BenchmarkRemove(b *testing.B) {
 
 // BenchmarkMixedOperations benchmarks mixed operations
 func BenchmarkMixedOperations(b *testing.B) {
-	pq := queue.New[int](10000, time.Second)
+	pq := New[int](10000, time.Second)
 	defer pq.Close()
 
 	// Pre-populate
@@ -1739,7 +1757,7 @@ func BenchmarkMixedOperations(b *testing.B) {
 
 // BenchmarkConcurrentOperations benchmarks concurrent operations
 func BenchmarkConcurrentOperations(b *testing.B) {
-	pq := queue.New[int](1000, time.Second)
+	pq := New[int](1000, time.Second)
 	defer pq.Close()
 
 	b.RunParallel(func(pb *testing.PB) {
@@ -1754,4 +1772,191 @@ func BenchmarkConcurrentOperations(b *testing.B) {
 			}
 		}
 	})
+}
+
+// The benchmarks below use deterministic inputs so before/after comparisons are
+// stable enough to catch small regressions in the queue hot paths.
+
+func BenchmarkPriorityQueuePushSteadyState(b *testing.B) {
+	pq := New[int](b.N+1024, time.Hour)
+	if pq == nil {
+		b.Fatal("failed to create queue")
+	}
+	defer pq.Close()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		pq.Push(i, i&255, time.Hour)
+	}
+}
+
+func BenchmarkPriorityQueuePushAtCapacity(b *testing.B) {
+	const capacity = 1024
+
+	pq := New[int](capacity, time.Hour)
+	if pq == nil {
+		b.Fatal("failed to create queue")
+	}
+	defer pq.Close()
+
+	for i := 0; i < capacity; i++ {
+		pq.Push(i, i, time.Hour)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		pq.Push(capacity+i, capacity+(i&255), time.Hour)
+	}
+}
+
+func BenchmarkPriorityQueuePushAtCapacityWithExpired(b *testing.B) {
+	const capacity = 1024
+
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		pq := New[int](capacity, time.Hour)
+		if pq == nil {
+			b.Fatal("failed to create queue")
+		}
+
+		for j := 0; j < capacity-1; j++ {
+			pq.Push(j, j, time.Hour)
+		}
+		pq.Push(capacity, capacity*2, time.Millisecond)
+		time.Sleep(2 * time.Millisecond)
+
+		b.StartTimer()
+		pq.Push(capacity+1, capacity/2, time.Hour)
+		b.StopTimer()
+
+		pq.Close()
+	}
+}
+
+func BenchmarkPriorityQueuePopPushStable(b *testing.B) {
+	const capacity = 4096
+
+	pq := New[int](capacity, time.Hour)
+	if pq == nil {
+		b.Fatal("failed to create queue")
+	}
+	defer pq.Close()
+
+	for i := 0; i < capacity; i++ {
+		pq.Push(i, i, time.Hour)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = pq.Pop()
+		pq.Push(capacity+i, capacity+i, time.Hour)
+	}
+}
+
+func BenchmarkPriorityQueuePopOnly(b *testing.B) {
+	const capacity = 4096
+
+	pq := New[int](capacity, time.Hour)
+	if pq == nil {
+		b.Fatal("failed to create queue")
+	}
+	defer pq.Close()
+
+	nextValue := 0
+	refill := func() {
+		for i := 0; i < capacity; i++ {
+			pq.Push(nextValue+i, nextValue+i, time.Hour)
+		}
+		nextValue += capacity
+	}
+	refill()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if pq.Empty() {
+			b.StopTimer()
+			refill()
+			b.StartTimer()
+		}
+		_ = pq.Pop()
+	}
+}
+
+func BenchmarkPriorityQueueCleanupExpired(b *testing.B) {
+	const capacity = 4096
+
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		pq := New[int](capacity, time.Hour)
+		if pq == nil {
+			b.Fatal("failed to create queue")
+		}
+
+		for j := 0; j < capacity; j++ {
+			pq.Push(j, j, time.Millisecond)
+		}
+		time.Sleep(2 * time.Millisecond)
+
+		b.StartTimer()
+		pq.Cleanup()
+		b.StopTimer()
+
+		pq.Close()
+	}
+}
+
+func BenchmarkPriorityQueueElemsSnapshot(b *testing.B) {
+	const capacity = 4096
+
+	pq := New[string](capacity, time.Hour)
+	if pq == nil {
+		b.Fatal("failed to create queue")
+	}
+	defer pq.Close()
+
+	for i := 0; i < capacity; i++ {
+		pq.Push(strconv.Itoa(i), i, time.Hour)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = pq.Elems()
+	}
+}
+
+func BenchmarkPriorityQueueMixedWorkload(b *testing.B) {
+	const capacity = 2048
+
+	pq := New[int](capacity, time.Hour)
+	if pq == nil {
+		b.Fatal("failed to create queue")
+	}
+	defer pq.Close()
+
+	for i := 0; i < capacity/2; i++ {
+		pq.Push(i, i&127, time.Hour)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		value := i & 4095
+		switch i % 5 {
+		case 0:
+			pq.Push(value, value&255, time.Hour)
+		case 1:
+			_ = pq.Peek()
+		case 2:
+			_ = pq.Pop()
+		case 3:
+			pq.Remove(value)
+		default:
+			_ = pq.Elems()
+		}
+	}
 }

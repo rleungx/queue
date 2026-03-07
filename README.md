@@ -9,7 +9,7 @@ This project is a Go implementation of a high-performance priority queue with TT
 
 ## Features
 
-- **High Performance**: Optimized with object pooling and zero-allocation operations
+- **High Performance**: Optimized with entry reuse and zero-allocation steady-state push/pop paths
 - **TTL Support**: Automatic cleanup of expired entries with configurable intervals
 - **Thread-Safe**: Concurrent operations with optimized read-write locking
 - **Generic Types**: Support for any comparable type using Go generics
